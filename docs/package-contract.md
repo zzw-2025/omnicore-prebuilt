@@ -76,3 +76,17 @@ For every artifact, retain evidence for:
 - installation into a fresh runtime root with no dependency on the build workspace.
 
 Publishing metadata is complete only after the OmniInfer catalog references the same versioned Release URL and digest and `advisor system` reports the backend as compatible and prebuilt-installable on the target machine. Never replace a runtime archive under an existing Release tag.
+
+## Trusted build boundary
+
+OmniCore source is built only in the private OmniCore repository. The public
+prebuilt repository must never check out the private source tree or require a
+source-read token. Its responsibilities begin with an uploaded draft Release:
+checksum verification, keyless signing, manifest/catalog generation, and
+immutable distribution.
+
+The Windows CUDA gate must run on a trusted Windows x86_64 host with a real
+NVIDIA GPU, the declared CUDA toolkit, Visual Studio C++ tools, and the
+`self-hosted`, `Windows`, `X64`, and `cuda` runner labels. A compiler-only
+machine, Linux CUDA host, or CPU fallback does not establish Windows CUDA
+runtime compatibility.

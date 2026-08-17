@@ -1,26 +1,7 @@
-name: Build prebuilt runtimes
+name: Validate prebuilt publication contract
 
 on:
-  workflow_call:
-    inputs:
-      source_commit:
-        description: Immutable OmniCore commit
-        required: true
-        type: string
-      version:
-        description: Artifact version label
-        required: true
-        type: string
   workflow_dispatch:
-    inputs:
-      source_commit:
-        description: Immutable OmniCore commit
-        required: true
-        default: 093b52aa7838e2da0a2d2a73133c1bad895ce157
-      version:
-        description: Artifact version label
-        required: true
-        default: 0.1.0
   pull_request:
   push:
     branches: [main]
@@ -41,66 +22,3 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check jsonschema==4.23.0
           PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -v
-
-  windows-cpu:
-    needs: validate-publication-contract
-    runs-on: windows-2022
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: omnimind-ai/OmniCore
-          ref: ${{ inputs.source_commit || '093b52aa7838e2da0a2d2a73133c1bad895ce157' }}
-          path: OmniCore
-      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
-        with:
-          arch: x64
-      - name: Build and package
-        shell: pwsh
-        run: >-
-          ./scripts/build-windows.ps1
-          -SourceDir ./OmniCore
-          -Version "${{ inputs.version || 'dev' }}"
-          -Variant cpu
-      - name: Smoke packaged CPU runtime with a real GGUF
-        shell: pwsh
-        run: |
-          $archives = @(Get-ChildItem dist/omnicore-*-windows-x86_64-cpu.zip)
-          if ($archives.Count -ne 1) {
-            throw "Expected exactly one CPU archive, found $($archives.Count)"
-          }
-          ./scripts/smoke-windows.ps1 -ArchivePath $archives[0].FullName
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: omnicore-windows-x86_64-cpu
-          path: |
-            dist/*.zip
-            dist/*.sha256
-          if-no-files-found: error
-
-  macos-metal:
-    needs: validate-publication-contract
-    runs-on: macos-14
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: omnimind-ai/OmniCore
-          ref: ${{ inputs.source_commit || '093b52aa7838e2da0a2d2a73133c1bad895ce157' }}
-          path: OmniCore
-      - name: Build and package
-        run: >-
-          bash ./scripts/build-macos.sh
-          --source-dir ./OmniCore
-          --version "${{ inputs.version || 'dev' }}"
-      - name: Smoke packaged Metal runtime with a real GGUF
-        run: |
-          archive=$(find dist -maxdepth 1 -name 'omnicore-*-macos-arm64-metal.tar.gz' -print -quit)
-          bash ./scripts/smoke-macos.sh "$archive"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: omnicore-macos-arm64-metal
-          path: |
-            dist/*.tar.gz
-            dist/*.sha256
-          if-no-files-found: error

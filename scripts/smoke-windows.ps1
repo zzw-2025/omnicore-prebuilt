@@ -88,6 +88,15 @@ try {
         -WorkingDirectory (Split-Path -Parent $server) -WindowStyle Hidden `
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     Wait-Server $Port $serverProcess
+    if ($RequireCuda) {
+        $runtimeLog = @($stdout, $stderr) |
+            Where-Object { Test-Path -LiteralPath $_ } |
+            ForEach-Object { Get-Content -LiteralPath $_ -Raw } |
+            Out-String
+        if ($runtimeLog -notmatch '(?i)(offload(ed|ing).*(layers?).*GPU|CUDA\d+ model buffer)') {
+            throw 'Packaged CUDA server started but did not report model-layer GPU offload'
+        }
+    }
 
     $payload = @{
         model = 'stories15M'

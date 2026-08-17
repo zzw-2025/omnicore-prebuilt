@@ -31,15 +31,35 @@ jobs:
           fi
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - name: Download runtime archives
+      - name: Download runtime archives and checksum sidecars
         run: |
           set -euo pipefail
           mkdir release-assets
           gh release download "$RELEASE_TAG" \
             --dir release-assets \
             --pattern 'omnicore-*.zip' \
-            --pattern 'omnicore-*.tar.gz'
+            --pattern 'omnicore-*.tar.gz' \
+            --pattern 'omnicore-*.sha256'
           find release-assets -maxdepth 1 -type f -print
+      - name: Verify publisher-provided checksums
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(release-assets/omnicore-*.zip release-assets/omnicore-*.tar.gz)
+          (( ${#archives[@]} >= 2 )) || {
+            echo 'Expected at least the Windows CPU and macOS Metal archives' >&2
+            exit 1
+          }
+          for asset in "${archives[@]}"; do
+            sidecar="${asset}.sha256"
+            [[ -f "$sidecar" ]] || { echo "Missing $sidecar" >&2; exit 1; }
+            expected=$(awk 'NR == 1 { print $1 }' "$sidecar")
+            actual=$(sha256sum "$asset" | awk '{ print $1 }')
+            [[ "$expected" == "$actual" ]] || {
+              echo "SHA-256 sidecar mismatch for $asset" >&2
+              exit 1
+            }
+          done
       - name: Sign archives with GitHub OIDC
         run: |
           set -euo pipefail

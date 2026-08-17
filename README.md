@@ -18,11 +18,13 @@ These are publication targets, not claims that the artifacts already exist.
 
 ## Publishing a downloadable release
 
-Use the **Build and publish prebuilt release** workflow and provide an immutable
-OmniCore source commit plus a version without the `v` prefix. The workflow:
+Use the **Publish OmniCore prebuilt release** workflow in the private OmniCore
+repository and provide an immutable source commit plus a version without the
+`v` prefix. The private workflow:
 
 1. builds Windows x86_64 CPU and macOS arm64 Metal packages on their native
-   GitHub-hosted runners;
+   GitHub-hosted runners, and optionally builds CUDA on a trusted self-hosted
+   Windows NVIDIA runner;
 2. runs each packaged runtime against the pinned real-model smoke test;
 3. verifies archive SHA-256 sidecars and creates an unpublished draft Release;
 4. triggers the signing workflow, which signs every runtime archive with
@@ -42,10 +44,18 @@ OmniInfer integration branch before being promoted for general users. Creating
 the Release does not by itself modify OmniInfer: merge the generated catalog
 fragment into OmniInfer and validate its product entry point first.
 
-CUDA remains a separate **Build CUDA prebuilt runtime** workflow because its
-publication gate requires a self-hosted Windows runner with a real NVIDIA GPU.
-Upload a CUDA archive to a Release only after that workflow passes; rerun the
-signing workflow for the tag to regenerate signed metadata containing it.
+CUDA remains a separate target gate because it requires a self-hosted Windows
+runner with a real NVIDIA GPU. Select `include_cuda` only when that runner is
+online and correctly labelled. A published Release is immutable: if CUDA was
+not included before signing, publish a new version instead of adding it to an
+existing Release.
+
+The private repository secret `OMNICORE_PREBUILT_PUBLISH_TOKEN` must be a
+fine-grained credential scoped only to `zzw-2025/omnicore-prebuilt`, with
+Contents read/write and Actions read/write permissions. It is used only by the
+final publication job; build and smoke-test jobs do not receive it. For a
+long-lived production setup, prefer a narrowly scoped GitHub App installation
+token over a user-owned token.
 
 macOS uses OmniCore's native Metal backend. A Vulkan-labelled macOS package is
 not part of this contract because it would require an additional MoltenVK and
@@ -141,10 +151,12 @@ cosign verify-blob \
   <archive>
 ```
 
-The signing workflow is intentionally separate from building. The explicit
-publish workflow creates a draft first, and only the signing workflow can turn
-that verified draft into a public Release. CI builds and pull requests cannot
-silently create public runtime assets.
+The signing workflow is intentionally separate from building. The private
+publish workflow creates a draft in this repository, and only this repository's
+signing workflow can turn that verified draft into a public Release. CI builds
+and pull requests cannot silently create public runtime assets. The
+**Finalize uploaded prebuilt draft** workflow is a recovery entry point for an
+already uploaded draft; it does not build or read private OmniCore source.
 
 The repository setting **Allow GitHub Actions to create and approve pull
 requests** must be enabled for the automatic manifest-update PR. If policy
