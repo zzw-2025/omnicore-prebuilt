@@ -1,0 +1,111 @@
+name: Build and publish prebuilt release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Immutable OmniCore commit
+        required: true
+        default: 093b52aa7838e2da0a2d2a73133c1bad895ce157
+      version:
+        description: Release version without the v prefix
+        required: true
+        default: 0.1.0
+      prerelease:
+        description: Mark the GitHub Release as a prerelease
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate immutable inputs
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
+            echo 'source_commit must be a 40-character lowercase commit' >&2
+            exit 2
+          }
+          [[ "$VERSION" =~ ^[0-9A-Za-z._-]+$ ]] || {
+            echo 'version contains unsupported characters' >&2
+            exit 2
+          }
+          [[ "$GITHUB_REF" == 'refs/heads/main' ]] || {
+            echo 'publish releases only from the main branch' >&2
+            exit 2
+          }
+
+  build:
+    needs: validate-inputs
+    uses: ./.github/workflows/build.yml
+    with:
+      source_commit: ${{ inputs.source_commit }}
+      version: ${{ inputs.version }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: v${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: omnicore-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify artifact sidecars and names
+        run: |
+          set -euo pipefail
+          mapfile -t archives < <(find release-assets -maxdepth 1 -type f \
+            \( -name 'omnicore-*.zip' -o -name 'omnicore-*.tar.gz' \) -print | sort)
+          (( ${#archives[@]} == 2 )) || {
+            echo "Expected Windows CPU and macOS Metal archives, found ${#archives[@]}" >&2
+            exit 1
+          }
+          for archive in "${archives[@]}"; do
+            sidecar="$archive.sha256"
+            [[ -f "$sidecar" ]] || { echo "Missing $sidecar" >&2; exit 1; }
+            expected=$(awk 'NR == 1 { print $1 }' "$sidecar")
+            actual=$(sha256sum "$archive" | awk '{ print $1 }')
+            [[ "$expected" == "$actual" ]] || {
+              echo "SHA-256 sidecar mismatch for $archive" >&2
+              exit 1
+            }
+          done
+          test "$(find release-assets -maxdepth 1 -type f -name "omnicore-${{ inputs.version }}-*" | wc -l)" -ge 4
+      - name: Create draft GitHub Release
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release already exists: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          prerelease=()
+          if [[ '${{ inputs.prerelease }}' == 'true' ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" release-assets/* \
+            --target "$GITHUB_SHA" \
+            --title "OmniCore prebuilt $RELEASE_TAG" \
+            --generate-notes \
+            --draft \
+            "${prerelease[@]}"
+      - name: Dispatch signing and metadata workflow
+        run: |
+          set -euo pipefail
+          gh workflow run sign-release.yml \
+            --ref main \
+            -f "tag=$RELEASE_TAG"

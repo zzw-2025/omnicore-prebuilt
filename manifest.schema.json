@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/zzw-2025/omnicore-prebuilt/blob/main/manifest.schema.json",
+  "title": "OmniCore prebuilt release manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "status", "artifacts"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "status": { "enum": ["draft", "published"] },
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/artifact" }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "status": { "const": "published" } },
+        "required": ["status"]
+      },
+      "then": {
+        "properties": { "artifacts": { "minItems": 1 } }
+      }
+    }
+  ],
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backendId",
+        "version",
+        "sourceRepository",
+        "sourceCommit",
+        "platform",
+        "architecture",
+        "accelerator",
+        "bootstrapCompatibility",
+        "protocol",
+        "capabilities",
+        "archive",
+        "launcher",
+        "requiredFiles",
+        "runtimeDependencies",
+        "license",
+        "assetUrl",
+        "sizeBytes",
+        "sha256",
+        "signature"
+      ],
+      "properties": {
+        "backendId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "version": { "type": "string", "minLength": 1 },
+        "sourceRepository": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "sourceCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "platform": { "enum": ["windows", "macos"] },
+        "architecture": { "enum": ["x86_64", "arm64"] },
+        "accelerator": { "enum": ["cpu", "cuda", "metal"] },
+        "runtimeVersion": { "type": "string", "minLength": 1 },
+        "bootstrapCompatibility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimumOmniInferVersion"],
+          "properties": {
+            "minimumOmniInferVersion": { "type": "string", "minLength": 1 },
+            "maximumOmniInferVersion": { "type": "string", "minLength": 1 }
+          }
+        },
+        "protocol": { "const": "llama.cpp-server" },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["chat", "vision", "embedding", "reranking", "stream"] },
+          "uniqueItems": true
+        },
+        "archive": { "enum": ["zip", "tar.gz"] },
+        "launcher": { "type": "string", "minLength": 1 },
+        "requiredFiles": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "runtimeDependencies": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "license": { "type": "string", "minLength": 1 },
+        "assetUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "sizeBytes": { "type": "integer", "minimum": 1048576 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "signature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["algorithm", "assetUrl", "sha256"],
+          "properties": {
+            "algorithm": { "enum": ["cosign-keyless", "minisign"] },
+            "publicKeyId": { "type": "string", "minLength": 1 },
+            "certificateIdentity": { "type": "string", "minLength": 1 },
+            "certificateOidcIssuer": { "type": "string", "format": "uri", "pattern": "^https://" },
+            "assetUrl": { "type": "string", "format": "uri", "pattern": "^https://" },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "algorithm": { "const": "cosign-keyless" } } },
+              "then": { "required": ["certificateIdentity", "certificateOidcIssuer"] }
+            },
+            {
+              "if": { "properties": { "algorithm": { "const": "minisign" } } },
+              "then": { "required": ["publicKeyId"] }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

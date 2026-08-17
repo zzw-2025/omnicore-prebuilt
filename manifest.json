@@ -1,0 +1,6 @@
+{
+  "$schema": "./manifest.schema.json",
+  "schemaVersion": 1,
+  "status": "draft",
+  "artifacts": []
+}

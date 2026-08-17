@@ -1,0 +1,16 @@
+dist/
+staging/
+.work/
+release-assets/
+release-manifest.json
+omniinfer-catalog.json
+__pycache__/
+.pytest_cache/
+*.zip
+*.tar.gz
+*.tgz
+*.sha256
+*.sig
+*.bundle
+*.sigstore.json
+*.minisig

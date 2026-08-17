@@ -1,0 +1,68 @@
+name: Build CUDA prebuilt runtime
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Immutable OmniCore commit
+        required: true
+        default: 093b52aa7838e2da0a2d2a73133c1bad895ce157
+      version:
+        description: Artifact version label
+        required: true
+      cuda_version:
+        description: CUDA toolkit version installed on the runner
+        required: true
+        default: "12.4"
+      cuda_architectures:
+        description: CMake CUDA architecture list
+        required: true
+        default: "75;80;86;89;90"
+
+permissions:
+  contents: read
+
+jobs:
+  windows-cuda:
+    # The release gate requires a real NVIDIA GPU, not only a CUDA compiler.
+    runs-on: [self-hosted, Windows, X64, cuda]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: omnimind-ai/OmniCore
+          ref: ${{ inputs.source_commit }}
+          path: OmniCore
+      - name: Build and package
+        shell: pwsh
+        run: >-
+          ./scripts/build-windows.ps1
+          -SourceDir ./OmniCore
+          -Version "${{ inputs.version }}"
+          -Variant cuda
+          -CudaVersion "${{ inputs.cuda_version }}"
+          -CudaArchitectures "${{ inputs.cuda_architectures }}"
+      - name: Confirm CUDA device identity
+        shell: pwsh
+        run: |
+          $server = Get-ChildItem dist/../.work/windows/stage-cuda -Recurse -Filter llama-server.exe | Select-Object -First 1
+          $devices = & $server.FullName --list-devices 2>&1 | Out-String
+          $devices
+          if ($LASTEXITCODE -ne 0 -or $devices -notmatch 'CUDA') {
+            throw 'Packaged server did not report a CUDA device'
+          }
+      - name: Smoke packaged CUDA runtime with a real GGUF
+        shell: pwsh
+        run: |
+          $archives = @(Get-ChildItem dist/omnicore-*-windows-x86_64-cuda-*.zip)
+          if ($archives.Count -ne 1) {
+            throw "Expected exactly one CUDA archive, found $($archives.Count)"
+          }
+          ./scripts/smoke-windows.ps1 -ArchivePath $archives[0].FullName -RequireCuda
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: omnicore-windows-x86_64-cuda
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
