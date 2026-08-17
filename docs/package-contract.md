@@ -85,6 +85,12 @@ source-read token. Its responsibilities begin with an uploaded draft Release:
 checksum verification, keyless signing, manifest/catalog generation, and
 immutable distribution.
 
+Candidate archives are manually promoted from the private build run into an
+unpublished draft Release. This human approval is part of the active release
+contract; no cross-repository credential is required. Archive names and
+checksum sidecars must remain unchanged so the public signing gate can verify
+the complete asset set before publication.
+
 The Windows CUDA gate must run on a trusted Windows x86_64 host with a real
 NVIDIA GPU, the declared CUDA toolkit, Visual Studio C++ tools, and the
 `self-hosted`, `Windows`, `X64`, and `cuda` runner labels. A compiler-only

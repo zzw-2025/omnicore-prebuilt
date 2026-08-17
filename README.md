@@ -18,20 +18,24 @@ These are publication targets, not claims that the artifacts already exist.
 
 ## Publishing a downloadable release
 
-Use the **Publish OmniCore prebuilt release** workflow in the private OmniCore
+Use **Build release candidates for manual promotion** in the private OmniCore
 repository and provide an immutable source commit plus a version without the
-`v` prefix. The private workflow:
+`v` prefix. The active release procedure is:
 
 1. builds Windows x86_64 CPU and macOS arm64 Metal packages on their native
    GitHub-hosted runners, and optionally builds CUDA on a trusted self-hosted
    Windows NVIDIA runner;
 2. runs each packaged runtime against the pinned real-model smoke test;
-3. verifies archive SHA-256 sidecars and creates an unpublished draft Release;
-4. triggers the signing workflow, which signs every runtime archive with
+3. download every successful Actions artifact, including each runtime archive
+   and its `.sha256` sidecar;
+4. create an unpublished draft Release in this repository, using tag
+   `v<version>`, and upload the files without renaming them;
+5. run **Finalize uploaded prebuilt draft** from this repository's `main`
+   branch; the signing workflow signs every runtime archive with
    GitHub OIDC and verifies each generated Sigstore bundle;
-5. derives `release-manifest.json` from the archive's embedded build metadata
+6. derive `release-manifest.json` from the archive's embedded build metadata
    and the final Release assets, then renders `omniinfer-catalog.json`;
-6. uploads both metadata files, publishes the verified draft as a versioned
+7. upload both metadata files, publish the verified draft as a versioned
    GitHub Release, and opens a pull request updating `manifest.json`.
 
 If signing, verification, or metadata generation fails, the Release remains a
@@ -50,12 +54,12 @@ online and correctly labelled. A published Release is immutable: if CUDA was
 not included before signing, publish a new version instead of adding it to an
 existing Release.
 
-The private repository secret `OMNICORE_PREBUILT_PUBLISH_TOKEN` must be a
-fine-grained credential scoped only to `zzw-2025/omnicore-prebuilt`, with
-Contents read/write and Actions read/write permissions. It is used only by the
-final publication job; build and smoke-test jobs do not receive it. For a
-long-lived production setup, prefer a narrowly scoped GitHub App installation
-token over a user-owned token.
+This manual promotion path is intentional: it requires no cross-repository
+credential and makes publication a deliberate maintainer approval. The former
+automated draft-creation job remains disabled in OmniCore pending maintainer
+agreement and requires the explicit repository variable
+`ENABLE_AUTOMATED_PREBUILT_PROMOTION=true`. If automation is approved later,
+prefer a narrowly scoped GitHub App installation token over a user-owned token.
 
 macOS uses OmniCore's native Metal backend. A Vulkan-labelled macOS package is
 not part of this contract because it would require an additional MoltenVK and
@@ -151,12 +155,12 @@ cosign verify-blob \
   <archive>
 ```
 
-The signing workflow is intentionally separate from building. The private
-publish workflow creates a draft in this repository, and only this repository's
-signing workflow can turn that verified draft into a public Release. CI builds
-and pull requests cannot silently create public runtime assets. The
-**Finalize uploaded prebuilt draft** workflow is a recovery entry point for an
-already uploaded draft; it does not build or read private OmniCore source.
+The signing workflow is intentionally separate from building. A maintainer
+creates an unpublished draft from verified private-build artifacts, and only
+this repository's signing workflow can turn that draft into a public Release.
+CI builds and pull requests cannot silently create public runtime assets. The
+**Finalize uploaded prebuilt draft** workflow does not build or read private
+OmniCore source.
 
 The repository setting **Allow GitHub Actions to create and approve pull
 requests** must be enabled for the automatic manifest-update PR. If policy
