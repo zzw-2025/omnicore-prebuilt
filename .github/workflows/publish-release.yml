@@ -17,7 +17,8 @@ on:
 
 permissions:
   actions: write
-  contents: read
+  # GitHub only exposes draft Releases to tokens with push-level access.
+  contents: write
 
 jobs:
   dispatch-signing:
