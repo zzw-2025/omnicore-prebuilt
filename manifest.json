@@ -1,6 +1,48 @@
 {
   "$schema": "./manifest.schema.json",
   "schemaVersion": 1,
-  "status": "draft",
-  "artifacts": []
+  "status": "published",
+  "artifacts": [
+    {
+      "backendId": "omnicore-cpu",
+      "version": "0.1.0-preview.1",
+      "sourceRepository": "https://github.com/omnimind-ai/OmniCore",
+      "sourceCommit": "35acb25fa2b201abbde91ea934b2fda4e90589e9",
+      "platform": "windows",
+      "architecture": "x86_64",
+      "accelerator": "cpu",
+      "bootstrapCompatibility": {
+        "minimumOmniInferVersion": "0.3.21"
+      },
+      "protocol": "llama.cpp-server",
+      "capabilities": [
+        "chat",
+        "stream"
+      ],
+      "archive": "zip",
+      "launcher": "llama-server.exe",
+      "requiredFiles": [
+        "LICENSE",
+        "THIRD_PARTY_NOTICES.md",
+        "build-metadata.json",
+        "llama-server.exe",
+        "msvcp140.dll",
+        "vcomp140.dll",
+        "vcruntime140.dll",
+        "vcruntime140_1.dll"
+      ],
+      "runtimeDependencies": [],
+      "license": "MIT; Microsoft Visual Studio Redistributable terms",
+      "assetUrl": "https://github.com/zzw-2025/omnicore-prebuilt/releases/download/v0.1.0-preview.1/omnicore-0.1.0-preview.1-windows-x86_64-cpu.zip",
+      "sizeBytes": 3791110,
+      "sha256": "23a9b95570aef9e6e8a3166c29310122ea3d3812bde0b8b9fa5f4b33f982f323",
+      "signature": {
+        "algorithm": "cosign-keyless",
+        "certificateIdentity": "https://github.com/zzw-2025/omnicore-prebuilt/.github/workflows/sign-release.yml@refs/heads/main",
+        "certificateOidcIssuer": "https://token.actions.githubusercontent.com",
+        "assetUrl": "https://github.com/zzw-2025/omnicore-prebuilt/releases/download/v0.1.0-preview.1/omnicore-0.1.0-preview.1-windows-x86_64-cpu.zip.sigstore.json",
+        "sha256": "f7aac8c3b1489b72c52105e0b286a7bb25c8184069bf487079fafcfa3315b970"
+      }
+    }
+  ]
 }
