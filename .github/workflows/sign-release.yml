@@ -113,7 +113,7 @@ jobs:
         run: |
           set -euo pipefail
           gh release edit "$RELEASE_TAG" --draft=false
-      - name: Open manifest update pull request
+      - name: Publish manifest update branch
         env:
           RUN_ID: ${{ github.run_id }}
         run: |
@@ -130,8 +130,18 @@ jobs:
           git add manifest.json
           git commit -m "release: publish $RELEASE_TAG manifest"
           git push origin "HEAD:$branch"
-          gh pr create \
+          if pr_url=$(gh pr create \
             --base main \
             --head "$branch" \
             --title "release: publish $RELEASE_TAG manifest" \
-            --body "Generated from signed and verified assets in Release $RELEASE_TAG."
+            --body "Generated from signed and verified assets in Release $RELEASE_TAG." 2>&1); then
+            echo "Manifest pull request: $pr_url"
+          else
+            compare_url="https://github.com/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1"
+            echo "::warning::The signed Release was published and the manifest branch was pushed, but repository policy prevented automatic pull-request creation. Open it manually: $compare_url"
+            {
+              echo '### Manifest update requires a manual pull request'
+              echo
+              echo "The signed Release is already published. Open the manifest update from: $compare_url"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
