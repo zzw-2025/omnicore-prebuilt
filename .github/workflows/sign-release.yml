@@ -6,6 +6,14 @@ on:
       tag:
         description: Existing GitHub Release tag to sign
         required: true
+      release_profile:
+        description: Required runtime set for this Release
+        required: true
+        type: choice
+        default: full
+        options:
+          - full
+          - windows-cpu-preview
 
 permissions:
   contents: write
@@ -18,15 +26,21 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      RELEASE_PROFILE: ${{ inputs.release_profile }}
       CERTIFICATE_IDENTITY: https://github.com/${{ github.workflow_ref }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Require an unpublished draft release
         run: |
           set -euo pipefail
-          is_draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)
-          if [[ "$is_draft" != 'true' ]]; then
+          release_json=$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease)
+          if [[ $(jq -r .isDraft <<<"$release_json") != 'true' ]]; then
             echo "Refusing to replace assets or metadata on a published Release: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          if [[ "$RELEASE_PROFILE" == windows-cpu-preview && \
+                $(jq -r .isPrerelease <<<"$release_json") != 'true' ]]; then
+            echo 'windows-cpu-preview must be marked as a prerelease' >&2
             exit 1
           fi
       - name: Install cosign
@@ -44,22 +58,10 @@ jobs:
       - name: Verify publisher-provided checksums
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          archives=(release-assets/omnicore-*.zip release-assets/omnicore-*.tar.gz)
-          (( ${#archives[@]} >= 2 )) || {
-            echo 'Expected at least the Windows CPU and macOS Metal archives' >&2
-            exit 1
-          }
-          for asset in "${archives[@]}"; do
-            sidecar="${asset}.sha256"
-            [[ -f "$sidecar" ]] || { echo "Missing $sidecar" >&2; exit 1; }
-            expected=$(awk 'NR == 1 { print $1 }' "$sidecar")
-            actual=$(sha256sum "$asset" | awk '{ print $1 }')
-            [[ "$expected" == "$actual" ]] || {
-              echo "SHA-256 sidecar mismatch for $asset" >&2
-              exit 1
-            }
-          done
+          python scripts/validate-release-assets.py \
+            --assets-dir release-assets \
+            --tag "$RELEASE_TAG" \
+            --profile "$RELEASE_PROFILE"
       - name: Sign archives with GitHub OIDC
         run: |
           set -euo pipefail

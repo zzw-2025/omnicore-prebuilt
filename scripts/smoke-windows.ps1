@@ -43,6 +43,29 @@ function Wait-Server([int]$ServerPort, [System.Diagnostics.Process]$Process) {
     }
 }
 
+function Normalize-ProcessPathEnvironment {
+    $pathEntries = @(cmd.exe /d /c set path 2>$null | Where-Object {
+        $separator = $_.IndexOf('=')
+        $separator -gt 0 -and $_.Substring(0, $separator) -ieq 'Path'
+    })
+    if ($pathEntries.Count -le 1) {
+        return
+    }
+
+    $preferred = $pathEntries |
+        Where-Object { $_ -cmatch '^Path=' } |
+        Select-Object -First 1
+    if (-not $preferred) {
+        $preferred = $pathEntries[0]
+    }
+    $pathValue = $preferred.Substring($preferred.IndexOf('=') + 1)
+    foreach ($entry in $pathEntries) {
+        $name = $entry.Substring(0, $entry.IndexOf('='))
+        [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+    }
+    [Environment]::SetEnvironmentVariable('Path', $pathValue, 'Process')
+}
+
 $archive = Resolve-File $ArchivePath 'Archive'
 $smokeRoot = Join-Path ([IO.Path]::GetTempPath()) "omnicore-smoke-$([Guid]::NewGuid().ToString('N'))"
 $extractRoot = Join-Path $smokeRoot 'runtime'
@@ -84,9 +107,11 @@ try {
     if ($RequireCuda) {
         $arguments += '-ngl', '999'
     }
+    Normalize-ProcessPathEnvironment
     $serverProcess = Start-Process -FilePath $server -ArgumentList $arguments `
         -WorkingDirectory (Split-Path -Parent $server) -WindowStyle Hidden `
-        -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+        -RedirectStandardOutput $stdout -RedirectStandardError $stderr `
+        -PassThru
     Wait-Server $Port $serverProcess
     if ($RequireCuda) {
         $runtimeLog = @($stdout, $stderr) |

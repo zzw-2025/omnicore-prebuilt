@@ -6,6 +6,14 @@ on:
       tag:
         description: Existing unpublished draft tag to sign and publish
         required: true
+      release_profile:
+        description: Required runtime set for this Release
+        required: true
+        type: choice
+        default: full
+        options:
+          - full
+          - windows-cpu-preview
 
 permissions:
   actions: write
@@ -17,7 +25,9 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_PROFILE: ${{ inputs.release_profile }}
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Validate draft and immutable assets
         run: |
           set -euo pipefail
@@ -29,34 +39,27 @@ jobs:
             echo 'tag must use the form v<version>' >&2
             exit 2
           }
-          [[ $(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft) == true ]] || {
+          release_json=$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease)
+          [[ $(jq -r .isDraft <<<"$release_json") == true ]] || {
             echo "release must be an unpublished draft: $RELEASE_TAG" >&2
             exit 1
           }
-          mkdir release-assets
-          gh release download "$RELEASE_TAG" --dir release-assets
-          mapfile -t archives < <(find release-assets -maxdepth 1 -type f \
-            \( -name 'omnicore-*.zip' -o -name 'omnicore-*.tar.gz' \) -print | sort)
-          (( ${#archives[@]} >= 2 )) || {
-            echo "Expected at least Windows CPU and macOS Metal archives, found ${#archives[@]}" >&2
-            exit 1
-          }
-          for archive in "${archives[@]}"; do
-            sidecar="$archive.sha256"
-            [[ -f "$sidecar" ]] || { echo "Missing $sidecar" >&2; exit 1; }
-            expected=$(awk 'NR == 1 { print $1 }' "$sidecar")
-            actual=$(sha256sum "$archive" | awk '{ print $1 }')
-            [[ "$expected" == "$actual" ]] || {
-              echo "SHA-256 sidecar mismatch for $archive" >&2
+          if [[ "$RELEASE_PROFILE" == windows-cpu-preview ]]; then
+            [[ $(jq -r .isPrerelease <<<"$release_json") == true ]] || {
+              echo 'windows-cpu-preview must be marked as a prerelease' >&2
               exit 1
             }
-          done
-          version=${RELEASE_TAG#v}
-          test -f "release-assets/omnicore-$version-windows-x86_64-cpu.zip"
-          test -f "release-assets/omnicore-$version-macos-arm64-metal.tar.gz"
+          fi
+          mkdir release-assets
+          gh release download "$RELEASE_TAG" --dir release-assets
+          python scripts/validate-release-assets.py \
+            --assets-dir release-assets \
+            --tag "$RELEASE_TAG" \
+            --profile "$RELEASE_PROFILE"
       - name: Dispatch signing and metadata workflow
         run: |
           set -euo pipefail
           gh workflow run sign-release.yml \
             --ref main \
-            -f "tag=$RELEASE_TAG"
+            -f "tag=$RELEASE_TAG" \
+            -f "release_profile=$RELEASE_PROFILE"
