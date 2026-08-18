@@ -31,8 +31,11 @@ repository and provide an immutable source commit plus a version without the
 4. create an unpublished draft Release in this repository, using tag
    `v<version>`, and upload the files without renaming them;
 5. run **Finalize uploaded prebuilt draft** from this repository's `main`
-   branch; the signing workflow signs every runtime archive with
-   GitHub OIDC and verifies each generated Sigstore bundle;
+   branch with the appropriate release profile: `full` requires Windows CPU
+   and macOS Metal, while `windows-cpu-preview` requires exactly one Windows
+   CPU archive and a prerelease-marked draft; the signing workflow signs every
+   runtime archive with GitHub OIDC and verifies each generated Sigstore
+   bundle;
 6. derive `release-manifest.json` from the archive's embedded build metadata
    and the final Release assets, then renders `omniinfer-catalog.json`;
 7. upload both metadata files, publish the verified draft as a versioned

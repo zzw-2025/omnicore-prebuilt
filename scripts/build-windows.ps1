@@ -62,6 +62,35 @@ function Copy-SingleMatchingFile([string]$Root, [string]$Pattern, [string]$Desti
     return $matches[0].Name
 }
 
+function New-PortableZipArchive(
+    [string]$SourceDirectory,
+    [string]$DestinationPath
+) {
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $sourceRoot = [IO.Path]::GetFullPath($SourceDirectory).TrimEnd('\')
+    $sourceName = Split-Path -Leaf $sourceRoot
+    $archive = [IO.Compression.ZipFile]::Open(
+        $DestinationPath,
+        [IO.Compression.ZipArchiveMode]::Create
+    )
+    try {
+        foreach ($file in Get-ChildItem -LiteralPath $sourceRoot -Recurse -File | Sort-Object FullName) {
+            $relative = $file.FullName.Substring($sourceRoot.Length).TrimStart('\')
+            $entryName = "$sourceName/$($relative.Replace('\', '/'))"
+            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $archive,
+                $file.FullName,
+                $entryName,
+                [IO.Compression.CompressionLevel]::Optimal
+            ) | Out-Null
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
+
 $source = Resolve-CleanDirectory $SourceDir
 if (-not (Get-Command cmake -ErrorAction SilentlyContinue)) {
     throw 'cmake is required'
@@ -221,7 +250,7 @@ if (Test-Path -LiteralPath $assetPath) {
 $archiveError = $null
 for ($attempt = 1; $attempt -le 5; $attempt++) {
     try {
-        Compress-Archive -LiteralPath $stage -DestinationPath $assetPath -CompressionLevel Optimal
+        New-PortableZipArchive -SourceDirectory $stage -DestinationPath $assetPath
         $archiveError = $null
         break
     } catch {
@@ -234,6 +263,15 @@ for ($attempt = 1; $attempt -le 5; $attempt++) {
 }
 if ($archiveError) {
     throw $archiveError
+}
+$zip = [IO.Compression.ZipFile]::OpenRead($assetPath)
+try {
+    $invalidEntries = @($zip.Entries | Where-Object { $_.FullName.Contains('\') })
+    if ($invalidEntries.Count -ne 0) {
+        throw "ZIP entry paths must use forward slashes: $($invalidEntries[0].FullName)"
+    }
+} finally {
+    $zip.Dispose()
 }
 $digest = (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
 "$digest  $assetName" | Set-Content -LiteralPath "$assetPath.sha256" -Encoding ascii
