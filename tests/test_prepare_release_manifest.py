@@ -57,7 +57,13 @@ class PrepareReleaseManifestTests(unittest.TestCase):
                 "https://github.com/zzw-2025/omnicore-prebuilt/"
                 ".github/workflows/sign-release.yml@refs/tags/v0.1.0"
             )
-            manifest = MODULE.prepare_manifest(root, "v0.1.0", identity)
+            manifest = MODULE.prepare_manifest(
+                root,
+                "v0.1.0",
+                "cosign-keyless",
+                identity,
+                "https://token.actions.githubusercontent.com",
+            )
             schema = json.loads(
                 (Path(__file__).parents[1] / "manifest.schema.json").read_text(encoding="utf-8")
             )
@@ -82,14 +88,49 @@ class PrepareReleaseManifestTests(unittest.TestCase):
             archive = self.make_cpu_archive(root)
             archive.with_name(f"{archive.name}.sigstore.json").unlink()
             with self.assertRaisesRegex(ValueError, "Sigstore bundle is missing"):
-                MODULE.prepare_manifest(root, "v0.1.0", "workflow identity")
+                MODULE.prepare_manifest(
+                    root,
+                    "v0.1.0",
+                    "cosign-keyless",
+                    "workflow identity",
+                    "https://token.actions.githubusercontent.com",
+                )
+
+    def test_generates_unsigned_manifest_when_explicitly_selected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = self.make_cpu_archive(root)
+            archive.with_name(f"{archive.name}.sigstore.json").unlink()
+            manifest = MODULE.prepare_manifest(root, "v0.1.0", "none")
+            schema = json.loads(
+                (Path(__file__).parents[1] / "manifest.schema.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            jsonschema.Draft202012Validator(schema).validate(manifest)
+            self.assertNotIn("signature", manifest["artifacts"][0])
+
+    def test_generates_minisign_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = self.make_cpu_archive(root)
+            archive.with_name(f"{archive.name}.sigstore.json").unlink()
+            archive.with_name(f"{archive.name}.minisig").write_text(
+                "untrusted comment: signature\ntest\n", encoding="utf-8"
+            )
+            manifest = MODULE.prepare_manifest(
+                root, "v0.1.0", "minisign", public_key_id="release-key-1"
+            )
+            signature = manifest["artifacts"][0]["signature"]
+            self.assertEqual(signature["algorithm"], "minisign")
+            self.assertEqual(signature["publicKeyId"], "release-key-1")
 
     def test_rejects_filename_metadata_contract_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             self.make_cpu_archive(root, backend_id="omnicore-cuda")
             with self.assertRaisesRegex(ValueError, "metadata backendId"):
-                MODULE.prepare_manifest(root, "v0.1.0", "workflow identity")
+                MODULE.prepare_manifest(root, "v0.1.0", "none")
 
 
 if __name__ == "__main__":

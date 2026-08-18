@@ -109,30 +109,42 @@ def render(manifest: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
             raise ValueError(f"{backend}: invalid SHA-256")
         signature = artifact.get("signature")
-        if not isinstance(signature, dict) or signature.get("algorithm") != "cosign-keyless":
-            raise ValueError(f"{backend}: published artifact has no keyless cosign signature")
-        signature_repository, signature_tag, signature_name = release_identity(
-            signature.get("assetUrl", "")
-        )
-        if (
-            signature_repository != release_repository
-            or signature_tag != release_tag
-            or signature_name != f"{asset_name}.sigstore.json"
-        ):
-            raise ValueError(f"{backend}: signature bundle does not match the runtime asset")
-        signature_sha256 = signature.get("sha256")
-        if not isinstance(signature_sha256, str) or not SHA256_RE.fullmatch(
-            signature_sha256
-        ):
-            raise ValueError(f"{backend}: invalid signature bundle SHA-256")
-        if signature.get("certificateOidcIssuer") != OIDC_ISSUER:
-            raise ValueError(f"{backend}: unexpected certificate OIDC issuer")
-        valid_identities = {
-            f"{SIGNING_WORKFLOW}@refs/tags/{release_tag}",
-            f"{SIGNING_WORKFLOW}@refs/heads/main",
-        }
-        if signature.get("certificateIdentity") not in valid_identities:
-            raise ValueError(f"{backend}: unexpected signing workflow identity")
+        if signature is not None:
+            if not isinstance(signature, dict):
+                raise ValueError(f"{backend}: signature must be an object")
+            algorithm = signature.get("algorithm")
+            expected_suffix = None
+            if algorithm == "cosign-keyless":
+                expected_suffix = ".sigstore.json"
+                if signature.get("certificateOidcIssuer") != OIDC_ISSUER:
+                    raise ValueError(f"{backend}: unexpected certificate OIDC issuer")
+                valid_identities = {
+                    f"{SIGNING_WORKFLOW}@refs/tags/{release_tag}",
+                    f"{SIGNING_WORKFLOW}@refs/heads/main",
+                }
+                if signature.get("certificateIdentity") not in valid_identities:
+                    raise ValueError(f"{backend}: unexpected signing workflow identity")
+            elif algorithm == "minisign":
+                expected_suffix = ".minisig"
+                public_key_id = signature.get("publicKeyId")
+                if not isinstance(public_key_id, str) or not public_key_id:
+                    raise ValueError(f"{backend}: minisign public key ID is required")
+            else:
+                raise ValueError(f"{backend}: unsupported signature algorithm")
+            signature_repository, signature_tag, signature_name = release_identity(
+                signature.get("assetUrl", "")
+            )
+            if (
+                signature_repository != release_repository
+                or signature_tag != release_tag
+                or signature_name != f"{asset_name}{expected_suffix}"
+            ):
+                raise ValueError(f"{backend}: signature bundle does not match the runtime asset")
+            signature_sha256 = signature.get("sha256")
+            if not isinstance(signature_sha256, str) or not SHA256_RE.fullmatch(
+                signature_sha256
+            ):
+                raise ValueError(f"{backend}: invalid signature bundle SHA-256")
 
         source = {
             "source_repository": source_repository,

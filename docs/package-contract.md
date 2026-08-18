@@ -55,9 +55,11 @@ upstream source fix and a clean packaged-runtime dependency audit.
   in the generated artifact metadata instead of representing the whole archive
   as MIT-only.
 - `assetUrl`, `sizeBytes`, and `sha256` describe the final uploaded Release asset. Compute the digest after upload preparation; never use a placeholder hash.
-- `signature` identifies either a keyless cosign Sigstore bundle and its expected
-  GitHub Actions certificate identity/issuer, or a minisign asset and trusted
-  public key. SHA-256 remains mandatory even when a signature is present.
+- Optional `signature` identifies either a historical keyless cosign Sigstore
+  bundle or a locally generated minisign asset and trusted public key ID.
+  SHA-256 remains mandatory with or without a signature. Publishing without a
+  signature requires an explicit maintainer acknowledgement in the local
+  finalizer.
 
 The source repository and the Release-asset repository are intentionally
 different: packages are built from `omnimind-ai/OmniCore` and published by this
@@ -79,20 +81,18 @@ Publishing metadata is complete only after the OmniInfer catalog references the 
 
 ## Trusted build boundary
 
-OmniCore source is built only in the private OmniCore repository. The public
-prebuilt repository must never check out the private source tree or require a
-source-read token. Its responsibilities begin with an uploaded draft Release:
-checksum verification, keyless signing, manifest/catalog generation, and
-immutable distribution.
+OmniCore source is built only by a maintainer who is authorized to read the
+private repository. The public prebuilt repository does not receive a private
+source token. Builds run locally on controlled target-platform machines, and
+only archives, checksum sidecars, signatures, and publication metadata are
+uploaded.
 
-Candidate archives are manually promoted from the private build run into an
-unpublished draft Release. This human approval is part of the active release
-contract; no cross-repository credential is required. Archive names and
-checksum sidecars must remain unchanged so the public signing gate can verify
-the complete asset set before publication.
+Candidate archives are manually uploaded to an unpublished draft Release.
+This human approval is part of the active release contract; archive names and
+checksum sidecars must remain unchanged so the local finalizer can verify the
+complete asset set before publication.
 
 The Windows CUDA gate must run on a trusted Windows x86_64 host with a real
-NVIDIA GPU, the declared CUDA toolkit, Visual Studio C++ tools, and the
-`self-hosted`, `Windows`, `X64`, and `cuda` runner labels. A compiler-only
-machine, Linux CUDA host, or CPU fallback does not establish Windows CUDA
-runtime compatibility.
+NVIDIA GPU, the declared CUDA toolkit, and Visual Studio C++ tools. A
+compiler-only machine, Linux CUDA host, or CPU fallback does not establish
+Windows CUDA runtime compatibility.

@@ -55,11 +55,27 @@ class CatalogRendererTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "status published"):
             render(manifest)
 
-    def test_rejects_unsigned_artifact(self) -> None:
+    def test_accepts_unsigned_artifact_with_sha256(self) -> None:
         manifest = published_manifest()
-        manifest["artifacts"][0]["signature"] = None
-        with self.assertRaisesRegex(ValueError, "no keyless cosign signature"):
-            render(manifest)
+        del manifest["artifacts"][0]["signature"]
+        result = render(manifest)
+        self.assertEqual(
+            result["platforms"]["windows"]["omnicore-cpu"]["sha256"], "a" * 64
+        )
+
+    def test_accepts_minisign_signature(self) -> None:
+        manifest = published_manifest()
+        manifest["artifacts"][0]["signature"] = {
+            "algorithm": "minisign",
+            "publicKeyId": "release-key-1",
+            "assetUrl": (
+                "https://github.com/zzw-2025/omnicore-prebuilt/releases/download/"
+                "v0.1.0/omnicore-0.1.0-windows-x86_64-cpu.zip.minisig"
+            ),
+            "sha256": "b" * 64,
+        }
+        result = render(manifest)
+        self.assertIn("omnicore-cpu", result["platforms"]["windows"])
 
     def test_rejects_signature_bundle_from_another_release(self) -> None:
         manifest = published_manifest()

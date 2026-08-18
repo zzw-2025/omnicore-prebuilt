@@ -4,7 +4,9 @@ This repository defines the publication contract for OmniCore runtime binaries u
 
 ## Current status
 
-`manifest.json` is intentionally empty while the first verified Release artifacts are being prepared. An artifact must not be added until its archive has been built on the target platform, smoke-tested, uploaded, and assigned a final SHA-256 digest.
+`manifest.json` records the latest reviewed Release metadata. An artifact must not
+be added until its archive has been built on the target platform, smoke-tested,
+uploaded, and assigned a final SHA-256 digest.
 
 Stable backend IDs and initial publication targets:
 
@@ -14,55 +16,72 @@ Stable backend IDs and initial publication targets:
 | `omnicore-cuda` | Windows | x86_64 | CUDA | `omnicore-<version>-windows-x86_64-cuda-<cuda-version>.zip` |
 | `omnicore-metal` | macOS | arm64 | Metal | `omnicore-<version>-macos-arm64-metal.tar.gz` |
 
-These are publication targets, not claims that the artifacts already exist.
+Windows CPU already has a verified preview Release. CUDA and Metal remain
+publication targets until their native-platform gates pass.
 
 ## Publishing a downloadable release
 
-Use **Build release candidates for manual promotion** in the private OmniCore
-repository and provide an immutable source commit plus a version without the
-`v` prefix. The active release procedure is:
+The active release procedure is local and deliberately does not depend on
+GitHub Actions:
 
-1. builds Windows x86_64 CPU and macOS arm64 Metal packages on their native
-   GitHub-hosted runners, and optionally builds CUDA on a trusted self-hosted
-   Windows NVIDIA runner;
-2. runs each packaged runtime against the pinned real-model smoke test;
-3. download every successful Actions artifact, including each runtime archive
-   and its `.sha256` sidecar;
-4. create an unpublished draft Release in this repository, using tag
-   `v<version>`, and upload the files without renaming them;
-5. run **Finalize uploaded prebuilt draft** from this repository's `main`
-   branch with the appropriate release profile: `full` requires Windows CPU
-   and macOS Metal, while `windows-cpu-preview` requires exactly one Windows
-   CPU archive and a prerelease-marked draft; the signing workflow signs every
-   runtime archive with GitHub OIDC and verifies each generated Sigstore
-   bundle;
-6. derive `release-manifest.json` from the archive's embedded build metadata
-   and the final Release assets, then renders `omniinfer-catalog.json`;
-7. upload both metadata files, publish the verified draft as a versioned
-   GitHub Release, and opens a pull request updating `manifest.json`.
+1. choose an immutable OmniCore commit and an independent prebuilt version;
+2. build each runtime on its native target platform with the scripts in this
+   repository;
+3. run the packaged real-model smoke test on that target platform;
+4. create an unpublished draft Release using tag `v<version>` and upload every
+   runtime archive plus its `.sha256` sidecar without renaming them;
+5. run `scripts/finalize-release.ps1` from a maintainer workstation. The script
+   downloads the draft assets, verifies the exact profile and checksums,
+   optionally signs them with minisign, generates `release-manifest.json` and
+   `omniinfer-catalog.json`, uploads the metadata, and publishes the draft;
+6. review the generated manifest, update `manifest.json` through a normal
+   commit, and merge the catalog fragment into OmniInfer only after its product
+   entry point passes on a clean target machine.
 
-If signing, verification, or metadata generation fails, the Release remains a
-non-public draft. The signing workflow refuses to modify an already-published
-Release, so a failed or superseded build must use a new version instead of
-replacing public assets.
+`full` requires Windows CPU and macOS Metal archives and may also contain the
+Windows CUDA archive. `windows-cpu-preview` requires exactly one Windows CPU
+archive and a prerelease-marked draft.
 
-The first release defaults to a prerelease so it can be installed through an
+Run a local validation without touching GitHub first:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\finalize-release.ps1 `
+  -Tag v<version> `
+  -Profile <full-or-windows-cpu-preview> `
+  -AssetsDir <path-to-local-runtime-assets>
+```
+
+For a signed Release, generate and protect a minisign key outside this
+repository, then finalize the already-created draft:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\scripts\finalize-release.ps1 `
+  -Tag v<version> `
+  -Profile <full-or-windows-cpu-preview> `
+  -SignatureMode minisign `
+  -MinisignSecretKey <path-to-secret-key> `
+  -MinisignPublicKey <path-to-public-key> `
+  -PublicKeyId <stable-key-id> `
+  -Publish
+```
+
+If the release owner explicitly accepts SHA-256-only integrity, use
+`-SignatureMode none -AllowUnsignedPublish -Publish`. The second switch is a
+deliberate safety acknowledgement; an unsigned draft cannot be published by
+accident. A failed finalization remains a non-public draft, and an already
+published Release is never modified.
+
+Mark preview Releases as prereleases so they can be installed through an
 OmniInfer integration branch before being promoted for general users. Creating
 the Release does not by itself modify OmniInfer: merge the generated catalog
 fragment into OmniInfer and validate its product entry point first.
 
-CUDA remains a separate target gate because it requires a self-hosted Windows
-runner with a real NVIDIA GPU. Select `include_cuda` only when that runner is
-online and correctly labelled. A published Release is immutable: if CUDA was
-not included before signing, publish a new version instead of adding it to an
-existing Release.
-
-This manual promotion path is intentional: it requires no cross-repository
-credential and makes publication a deliberate maintainer approval. The former
-automated draft-creation job remains disabled in OmniCore pending maintainer
-agreement and requires the explicit repository variable
-`ENABLE_AUTOMATED_PREBUILT_PROMOTION=true`. If automation is approved later,
-prefer a narrowly scoped GitHub App installation token over a user-owned token.
+CUDA remains a separate target gate because it requires Windows with a real
+NVIDIA GPU and a matching CUDA toolkit. A published Release is immutable: if
+CUDA was not included before publication, publish a new version instead of
+adding it to an existing Release.
 
 macOS uses OmniCore's native Metal backend. A Vulkan-labelled macOS package is
 not part of this contract because it would require an additional MoltenVK and
@@ -120,9 +139,9 @@ bash ./scripts/smoke-macos.sh \
 ```
 
 Use `-RequireCuda` for the Windows CUDA archive. That gate additionally
-requires a real CUDA device to be listed; a CPU fallback does not pass. The
-same smoke scripts run in the target-platform build workflows, so a launcher
-that merely answers `--version` is insufficient for publication.
+requires a real CUDA device to be listed; a CPU fallback does not pass. Run
+these smoke scripts manually on every release candidate; a launcher that merely
+answers `--version` is insufficient for publication.
 
 The initial manifest advertises only `chat` and `stream`, which are exercised
 by the packaged-runtime smoke tests. Do not add `vision` until the corresponding
@@ -144,32 +163,14 @@ Before publishing an artifact:
 6. Add the same verified URL and SHA-256 to OmniInfer's compiled prebuilt catalog and register the backend ID there.
 7. Validate discovery with `omniinfer advisor system --json`, then install through `omniinfer backend install <backend-id> --json` on a clean machine.
 
-Sign published assets with the repository's keyless cosign workflow. A local
-build may have a real SHA-256 but is not a published artifact until its Sigstore
-bundle exists and the target-platform gates have passed.
+Minisign is the supported local signature mode. Keep the secret key outside the
+repository and back it up according to the release owner's key-management
+policy. The public key ID in the manifest must remain stable for the lifetime
+of that key. SHA-256 remains mandatory with or without a signature.
 
-To verify a published archive, use the bundle uploaded beside it:
-
-```sh
-cosign verify-blob \
-  --bundle <archive>.sigstore.json \
-  --certificate-identity-regexp '^https://github.com/zzw-2025/omnicore-prebuilt/.github/workflows/sign-release.yml@refs/(heads/main|tags/[^/]+)$' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  <archive>
-```
-
-The signing workflow is intentionally separate from building. A maintainer
-creates an unpublished draft from verified private-build artifacts, and only
-this repository's signing workflow can turn that draft into a public Release.
-CI builds and pull requests cannot silently create public runtime assets. The
-**Finalize uploaded prebuilt draft** workflow does not build or read private
-OmniCore source.
-
-The repository setting **Allow GitHub Actions to create and approve pull
-requests** must be enabled for the automatic manifest-update PR. If policy
-disables it, the signed `release-manifest.json` and `omniinfer-catalog.json`
-remain attached to the Release, but a maintainer must update `manifest.json`
-through a normal reviewed PR.
+Release `v0.1.0-preview.1` was signed by the former GitHub Actions keyless
+workflow. Its historical Sigstore metadata remains valid and supported by the
+manifest/catalog parsers; removing the workflow does not rewrite that Release.
 
 After the signed Release metadata has been written to `manifest.json`, render
 the exact OmniInfer schema-v6 source and platform entries with:
@@ -179,8 +180,9 @@ python scripts/emit-omniinfer-catalog.py --manifest manifest.json
 ```
 
 The renderer refuses draft manifests, noncanonical URLs, invalid hashes,
-unsigned artifacts, mixed source commits, and mixed Release tags. Merge its
-output into OmniInfer only after the target-platform gates have passed.
+malformed signature metadata, mixed source commits, and mixed Release tags.
+Merge its output into OmniInfer only after the target-platform gates have
+passed.
 
 `manifest.json` is publication metadata. The current OmniInfer installer does not fetch this manifest remotely; it uses the catalog compiled into the OmniInfer CLI. This separation prevents an unpublished or partially uploaded asset from appearing in OmniStudio.
 

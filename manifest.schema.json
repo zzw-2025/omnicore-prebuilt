@@ -47,8 +47,7 @@
         "license",
         "assetUrl",
         "sizeBytes",
-        "sha256",
-        "signature"
+        "sha256"
       ],
       "properties": {
         "backendId": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },

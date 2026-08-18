@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a published manifest from signed OmniCore Release archives."""
+"""Create a published manifest from verified OmniCore Release archives."""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from typing import Any
 
 RELEASE_REPOSITORY = "zzw-2025/omnicore-prebuilt"
 SOURCE_REPOSITORY = "https://github.com/omnimind-ai/OmniCore"
-OIDC_ISSUER = "https://token.actions.githubusercontent.com"
 ASSET_RE = re.compile(
     r"^omnicore-(?P<version>[0-9A-Za-z._-]+)-"
     r"(?P<platform>windows|macos)-(?P<architecture>x86_64|arm64)-"
@@ -71,7 +70,13 @@ def archive_contents(path: Path) -> tuple[dict[str, Any], list[str]]:
 
 
 def artifact_from_archive(
-    archive: Path, version: str, tag: str, certificate_identity: str
+    archive: Path,
+    version: str,
+    tag: str,
+    signature_mode: str,
+    certificate_identity: str | None,
+    certificate_oidc_issuer: str | None,
+    public_key_id: str | None,
 ) -> dict[str, Any]:
     match = ASSET_RE.fullmatch(archive.name)
     if match is None or match.group("version") != version:
@@ -109,10 +114,6 @@ def artifact_from_archive(
     runtime_version = match.group("runtime")
     if accelerator == "cuda" and metadata.get("cudaVersion") != runtime_version:
         raise ValueError(f"{archive.name}: CUDA version differs from build metadata")
-    bundle = archive.with_name(f"{archive.name}.sigstore.json")
-    if not bundle.is_file():
-        raise ValueError(f"{archive.name}: Sigstore bundle is missing")
-
     base_url = f"https://github.com/{RELEASE_REPOSITORY}/releases/download/{tag}"
     artifact: dict[str, Any] = {
         "backendId": backend_id,
@@ -146,20 +147,47 @@ def artifact_from_archive(
         "assetUrl": f"{base_url}/{archive.name}",
         "sizeBytes": archive.stat().st_size,
         "sha256": sha256_file(archive),
-        "signature": {
+    }
+    if signature_mode == "cosign-keyless":
+        if not certificate_identity or not certificate_oidc_issuer:
+            raise ValueError("cosign-keyless requires certificate identity and issuer")
+        bundle = archive.with_name(f"{archive.name}.sigstore.json")
+        if not bundle.is_file():
+            raise ValueError(f"{archive.name}: Sigstore bundle is missing")
+        artifact["signature"] = {
             "algorithm": "cosign-keyless",
             "certificateIdentity": certificate_identity,
-            "certificateOidcIssuer": OIDC_ISSUER,
+            "certificateOidcIssuer": certificate_oidc_issuer,
             "assetUrl": f"{base_url}/{bundle.name}",
             "sha256": sha256_file(bundle),
-        },
-    }
+        }
+    elif signature_mode == "minisign":
+        if not public_key_id:
+            raise ValueError("minisign requires a public key ID")
+        signature = archive.with_name(f"{archive.name}.minisig")
+        if not signature.is_file():
+            raise ValueError(f"{archive.name}: minisign signature is missing")
+        artifact["signature"] = {
+            "algorithm": "minisign",
+            "publicKeyId": public_key_id,
+            "assetUrl": f"{base_url}/{signature.name}",
+            "sha256": sha256_file(signature),
+        }
+    elif signature_mode != "none":
+        raise ValueError(f"unsupported signature mode: {signature_mode}")
     if runtime_version:
         artifact["runtimeVersion"] = runtime_version
     return artifact
 
 
-def prepare_manifest(assets_dir: Path, tag: str, certificate_identity: str) -> dict[str, Any]:
+def prepare_manifest(
+    assets_dir: Path,
+    tag: str,
+    signature_mode: str = "none",
+    certificate_identity: str | None = None,
+    certificate_oidc_issuer: str | None = None,
+    public_key_id: str | None = None,
+) -> dict[str, Any]:
     if not tag.startswith("v") or re.fullmatch(r"[0-9A-Za-z._-]+", tag[1:]) is None:
         raise ValueError("release tag must be v<version>")
     version = tag[1:]
@@ -171,7 +199,15 @@ def prepare_manifest(assets_dir: Path, tag: str, certificate_identity: str) -> d
     if not archives:
         raise ValueError("release contains no runtime archives")
     artifacts = [
-        artifact_from_archive(archive, version, tag, certificate_identity)
+        artifact_from_archive(
+            archive,
+            version,
+            tag,
+            signature_mode,
+            certificate_identity,
+            certificate_oidc_issuer,
+            public_key_id,
+        )
         for archive in archives
     ]
     backend_ids = [artifact["backendId"] for artifact in artifacts]
@@ -191,11 +227,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--assets-dir", type=Path, required=True)
     parser.add_argument("--tag", required=True)
-    parser.add_argument("--certificate-identity", required=True)
+    parser.add_argument(
+        "--signature-mode",
+        choices=("none", "cosign-keyless", "minisign"),
+        default="none",
+    )
+    parser.add_argument("--certificate-identity")
+    parser.add_argument("--certificate-oidc-issuer")
+    parser.add_argument("--public-key-id")
     parser.add_argument("--output", type=Path, default=Path("manifest.json"))
     args = parser.parse_args()
     try:
-        manifest = prepare_manifest(args.assets_dir, args.tag, args.certificate_identity)
+        manifest = prepare_manifest(
+            args.assets_dir,
+            args.tag,
+            args.signature_mode,
+            args.certificate_identity,
+            args.certificate_oidc_issuer,
+            args.public_key_id,
+        )
         args.output.write_text(
             json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n"
         )
